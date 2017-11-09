@@ -80,7 +80,7 @@ void setup()
   #ifdef DEBUG
     Serial.println();
     Serial.println("-------------------------------------");
-    Serial.println("Sketch ID:      PowerMeterHTTP.ino");
+    Serial.println("Sketch ID:      PowerMeterMQTT.ino");
     Serial.print("Getting IP address...");  
   #endif
 

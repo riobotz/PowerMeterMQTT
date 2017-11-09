@@ -1,7 +1,7 @@
 //      Arduino MQTT power monitor, Code by Thomas Bergo - November 2017
 //      
 
-
+#include "arduino.h"
 #include <avr/wdt.h>
 #include <SPI.h>
 #include <Ethernet.h>
@@ -52,7 +52,7 @@ const byte INT_PIN = 1;
 
 // Pulse counting settings 
 int pulseCount = 0;                        // Number of pulses, used to measure energy.
-int power[50] = {};                        // Array to store pulse power values
+int power[25] = {};                        // Array to store pulse power values
 int txpower = 0;                           // powernumber to send
 int txpulse = 0;                           // number of pulses to send
 volatile unsigned long pulseTime,lastTime;  // Used to measure power.
@@ -152,7 +152,7 @@ void reconnect() {
 void send_data()
 {
   // Calculate average over the last power meassurements before sending
-  int _sum = 0;
+  long _sum = 0;
   int _pulsecount = pulseCount;
   
   for(int i=1; i<=_pulsecount; i++) {
@@ -163,7 +163,7 @@ void send_data()
   txpulse = _pulsecount;
    
   pulseCount=0;
-  power[50] = { };
+  power[25] = { };
   
   publishData("power", txpower);
   publishData("pulse", txpulse);
@@ -207,7 +207,7 @@ void onPulse()
     pulseCount++;
     
     // Size of array to avoid runtime error
-    if (pulseCount < 50) {
+    if (pulseCount < 25) {
       power[pulseCount] = int((3600000000.0 / (pulseTime - lastTime))/ppwh);  //Calculate power
       
     #ifdef DEBUG
@@ -218,7 +218,7 @@ void onPulse()
     #endif
     }
     else {
-      Serial.println("Pulsecount over 50. Not logging....");
+      Serial.println("Pulsecount over 25. Not logging....");
     }
   }
 }

@@ -8,7 +8,7 @@
 #include <PubSubClient.h>
 #include <Timer.h>
 
-#define REPORTING_INTERVAL_MS  5000
+#define REPORTING_INTERVAL_MS  10000
 #define MQTT_VERSION MQTT_VERSION_3_1_1
 
 // Comment this out for not printing data to the serialport
@@ -51,16 +51,13 @@ Timer callback_timer;
 const byte INT_PIN = 1;
 
 // Pulse counting settings 
-int pulseCount = 0;                        // Number of pulses, used to measure energy.
-int power[25] = {};                        // Array to store pulse power values
-int txpower = 0;                           // powernumber to send
-int txpulse = 0;                           // number of pulses to send
+volatile int pulseCount = 0;                // Number of pulses, used to measure energy.
+volatile int power[50] = {};                // Array to store pulse power values
 volatile unsigned long pulseTime,lastTime;  // Used to measure power.
-int ppwh = 1;                              // Pulses per Watt hour 
+const int ppwh = 1;                         // Pulses per Watt hour 
 
 //----- Interupt filtering variables ---------
-int minElapsed = 100;
-volatile unsigned long previousTime;
+const unsigned int minElapsed = 200000;
 
 void mqtt_callback(char* topic, byte* payload, unsigned int length) 
 { 
@@ -113,8 +110,8 @@ void setup()
   wdt_reset();
 }
 
-void loop()
-{ 
+void loop(){
+   
   // reset the watchdog timer
   wdt_reset();
   callback_timer.update();
@@ -149,35 +146,35 @@ void reconnect() {
   }
 }
 
-void send_data()
-{
-  // Calculate average over the last power meassurements before sending
-  long _sum = 0;
-  int _pulsecount = pulseCount;
+void send_data(){
   
-  for(int i=1; i<=_pulsecount; i++) {
+  // Calculate average over the last power meassurements before sending
+  int _txpower = 0;                  // powernumber to send
+  int _txpulse = pulseCount;         // number of pulses to send
+  unsigned long _sum = 0;
+  
+  for(int i=1; i<=_txpulse; i++) {
     _sum += power[i];
   }
 
-  txpower = int(_sum / _pulsecount);
-  txpulse = _pulsecount;
+  _txpower = int(_sum / _txpulse);
    
   pulseCount=0;
-  power[25] = { };
+  power[50] = { };
   
-  publishData("power", txpower);
-  publishData("pulse", txpulse);
+  publishData("power", _txpower);
+  publishData("pulse", _txpulse);
 
   #ifdef DEBUG
     Serial.print("W: ");
-    Serial.print(txpower);
+    Serial.print(_txpower);
     Serial.print(" - Pulse: ");
-    Serial.println(txpulse);
+    Serial.println(_txpulse);
   #endif 
 }
 
-void publishData(const char * name, int value)
-{  
+void publishData(const char * name, int value){
+    
   // build the MQTT topic
   char topic[32];
   snprintf(topic, 32, "%s/%s", mqttTopic, name);
@@ -192,23 +189,18 @@ void publishData(const char * name, int value)
 
 
 // The interrupt routine - runs each time a falling edge of a pulse is detected
-void onPulse() 
-{
-  unsigned long elapsedTime = millis() - previousTime;
+void onPulse(){
+   
+  lastTime = pulseTime;           //used to measure time between pulses.
+  pulseTime = micros();
 
-  if (elapsedTime >= minElapsed) {  //in range
-  
-    previousTime = millis();
+  if (pulseTime - lastTime > minElapsed){
     
-    lastTime = pulseTime;           //used to measure time between pulses.
-    pulseTime = micros();
-
-    // Increase pulseCounter
-    pulseCount++;
+    pulseCount++; // Increase pulseCounter
     
     // Size of array to avoid runtime error
-    if (pulseCount < 25) {
-      power[pulseCount] = int((3600000000.0 / (pulseTime - lastTime))/ppwh);  //Calculate power
+    if (pulseCount < 50) {
+      power[pulseCount] = int((3600000000.0 / (pulseTime - lastTime)) / ppwh);  //Calculate power
       
     #ifdef DEBUG
       Serial.print("Power: ");
@@ -218,7 +210,8 @@ void onPulse()
     #endif
     }
     else {
-      Serial.println("Pulsecount over 25. Not logging....");
+      Serial.println("Pulsecount over 50. Not logging....");
     }
   }
 }
+

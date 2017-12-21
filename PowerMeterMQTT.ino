@@ -6,7 +6,6 @@
 #include <SPI.h>
 #include <Ethernet.h>
 #include <PubSubClient.h>
-#include <Timer.h>
 
 #define REPORTING_INTERVAL_MS  10000    // Reporting interval (ms)
 #define MIN_ELAPSED_TIME 200000         // Filtering min elapsed time (microSec)
@@ -35,9 +34,6 @@ char mqttTopic[] = "/emontx";
 
 EthernetClient ethClient;
 PubSubClient mqttClient(ethClient);
-
-// Timer used for timing callbacks
-Timer callback_timer;
                  
 
 // ----------- Pinout assignments  -----------
@@ -56,7 +52,7 @@ const byte INT_PIN = 1;
 volatile int pulseCount = 0;                // Number of pulses, used to measure energy.
 volatile unsigned long power[50] = {};      // Array to store pulse power values
 volatile unsigned long pulseTime =0;        //used to measure time between pulses.
-
+unsigned long previousTime = 0;             // Main loop timing variable
 
 void mqtt_callback(char* topic, byte* payload, unsigned int length) 
 { 
@@ -65,12 +61,12 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length)
 
 void setup() 
 { 
-  // ensure the watchdog is disabled
-  wdt_disable();
+  
+  wdt_disable();                           // ensure the watchdog is disabled
 
-  Serial.begin(9600);              // initialize Serial interface
-  while (!Serial) {
-    delay(200);                    // wait for serial port to connect. Needed for native USB
+  Serial.begin(9600);                      // initialize Serial interface
+  while (!Serial){
+    delay(200);                            // wait for serial port to connect. Needed for native USB
   }
   
   #ifdef DEBUG
@@ -81,10 +77,10 @@ void setup()
   #endif
 
   mqttClient.setServer(mqttBroker, 1883);
-//  mqttClient.setCallback(mqtt_callback);
+  //mqttClient.setCallback(mqtt_callback);
   
-  // get an IP address
-  while (Ethernet.begin(mac) != 1) {
+  
+  while (Ethernet.begin(mac) != 1){         // get an IP address
     delay(500);
     #ifdef DEBUG
       Serial.print(".");
@@ -98,38 +94,40 @@ void setup()
     Serial.println(Ethernet.localIP());
   #endif
 
-  // Setup for report event timing
-  int reportEvent = callback_timer.every(REPORTING_INTERVAL_MS, send_data);
-
   // Attach interupt for capturing light pulses on powercentral
   attachInterrupt(INT_PIN, onPulse, FALLING);
 
-  // enable the watchdog timer - 8s timeout
-  wdt_enable(WDTO_8S);
+  wdt_enable(WDTO_8S);                     // enable the watchdog timer - 8s timeout
   wdt_reset();
 }
 
 void loop(){
    
-  // reset the watchdog timer
-  wdt_reset();
-  callback_timer.update();
-  if (!mqttClient.connected()) {
+  wdt_reset();                            // reset the watchdog timer
+  Ethernet.maintain();                    // check our DHCP lease is still ok
+
+  if (!mqttClient.connected()) {          // check connection to mqtt server
     reconnect();
   }
+  
   mqttClient.loop();
-  // check our DHCP lease is still ok
-  Ethernet.maintain();
+  
+  unsigned long elapsedTime = millis() - previousTime;
+   if (elapsedTime >= REPORTING_INTERVAL_MS){
+    previousTime = millis();
+
+    send_data();
+  }
 }
 
 void reconnect() {
-  // Loop until we're reconnected
-  while (!mqttClient.connected()) {
+  
+  while (!mqttClient.connected()){         // Loop until we're reconnected
     #ifdef DEBUG
       Serial.print("Attempting MQTT connection...");
     #endif
-    // Attempt to connect
-    if (mqttClient.connect(mqttClientId)) {
+   
+    if (mqttClient.connect(mqttClientId)){ // Attempt to connect
       #ifdef DEBUG
         Serial.println("connected");
       #endif
@@ -148,7 +146,6 @@ void reconnect() {
 void send_data(){
   
   // Calculate average over the last power meassurements before sending
-  int _txpower = 0;                  // powernumber to send
   int _txpulse = pulseCount;         // number of pulses to send
   unsigned long _sum = 0;
   
@@ -156,11 +153,11 @@ void send_data(){
     _sum += power[i];
   }
 
-  _txpower = int(_sum / _txpulse);
-   
   pulseCount=0;
   power[50] = { };
   
+  unsigned int _txpower = (_sum / _txpulse);
+   
   publishData("power", _txpower);
   publishData("pulse", _txpulse);
 
@@ -172,7 +169,7 @@ void send_data(){
   #endif 
 }
 
-void publishData(const char * name, int value){
+void publishData(const char * name, unsigned int value){
     
   // build the MQTT topic
   char topic[32];

@@ -8,7 +8,9 @@
 #include <PubSubClient.h>
 #include <Timer.h>
 
-#define REPORTING_INTERVAL_MS  10000
+#define REPORTING_INTERVAL_MS  10000    // Reporting interval (ms)
+#define MIN_ELAPSED_TIME 200000         // Filtering min elapsed time (microSec)
+#define PPWH 1                          // pulses per watt hour
 #define MQTT_VERSION MQTT_VERSION_3_1_1
 
 // Comment this out for not printing data to the serialport
@@ -52,12 +54,9 @@ const byte INT_PIN = 1;
 
 // Pulse counting settings 
 volatile int pulseCount = 0;                // Number of pulses, used to measure energy.
-volatile int power[50] = {};                // Array to store pulse power values
-volatile unsigned long pulseTime,lastTime;  // Used to measure power.
-const int ppwh = 1;                         // Pulses per Watt hour 
+volatile unsigned long power[50] = {};      // Array to store pulse power values
+volatile unsigned long pulseTime =0;        //used to measure time between pulses.
 
-//----- Interupt filtering variables ---------
-const unsigned int minElapsed = 200000;
 
 void mqtt_callback(char* topic, byte* payload, unsigned int length) 
 { 
@@ -191,16 +190,16 @@ void publishData(const char * name, int value){
 // The interrupt routine - runs each time a falling edge of a pulse is detected
 void onPulse(){
    
-  if (micros() - pulseTime > minElapsed){
+  unsigned long _elapsedTime = micros() - pulseTime;
+  if (_elapsedTime > MIN_ELAPSED_TIME){
 
-    lastTime = pulseTime;           //used to measure time between pulses.
     pulseTime = micros();
     
-    pulseCount++; // Increase pulseCounter
+    pulseCount++;                   // Increase pulseCounter
     
     // Size of array to avoid runtime error
     if (pulseCount < 50) {
-      power[pulseCount] = int((3600000000.0 / (pulseTime - lastTime)) / ppwh);  //Calculate power
+      power[pulseCount] = long((3600000000.0 / _elapsedTime) / PPWH);  //Calculate power
       
     #ifdef DEBUG
       Serial.print("Power: ");

@@ -191,10 +191,10 @@ void publishData(const char * name, int value){
 // The interrupt routine - runs each time a falling edge of a pulse is detected
 void onPulse(){
    
-  lastTime = pulseTime;           //used to measure time between pulses.
-  pulseTime = micros();
+  if (micros() - pulseTime > minElapsed){
 
-  if (pulseTime - lastTime > minElapsed){
+    lastTime = pulseTime;           //used to measure time between pulses.
+    pulseTime = micros();
     
     pulseCount++; // Increase pulseCounter
     

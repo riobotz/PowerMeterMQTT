@@ -143,7 +143,7 @@ void mqtt_connect() {
 void send_data() {
   
   // Calculate average over the last power meassurements before sending
-  int _txpulse = pulseCount;         // number of pulses to send
+  int _txpulse = pulseCount;         // Number of pulses to send
   unsigned long _sum = 0;
   
   for(int i=1; i<=_txpulse; i++) {

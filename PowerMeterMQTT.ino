@@ -15,8 +15,6 @@
 // Comment this out for not printing data to the serialport
 #define DEBUG
 
-// We are sending calculated results to an MQTT topic via ethernet
-
 // unique MAC address on our LAN (0x53 => .83)
 byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0x53 };
 
@@ -51,21 +49,20 @@ const byte INT_PIN = 1;
 // Pulse counting settings 
 volatile int pulseCount = 0;                // Number of pulses, used to measure energy.
 volatile unsigned long power[50] = {};      // Array to store pulse power values
-volatile unsigned long pulseTime =0;        //used to measure time between pulses.
-unsigned long previousTime = 0;             // Main loop timing variable
+volatile unsigned long pulseTime =0;        // Used to measure time between pulses.
+unsigned long previousSendTime = 0;         // Used to mesure time between sending data
 
 void mqtt_callback(char* topic, byte* payload, unsigned int length) 
 { 
   // no incoming messages to process
 }
 
-void setup() 
-{ 
+void setup() { 
   
   wdt_disable();                           // ensure the watchdog is disabled
 
   Serial.begin(9600);                      // initialize Serial interface
-  while (!Serial){
+  while (!Serial) {
     delay(200);                            // wait for serial port to connect. Needed for native USB
   }
   
@@ -79,8 +76,7 @@ void setup()
   mqttClient.setServer(mqttBroker, 1883);
   //mqttClient.setCallback(mqtt_callback);
   
-  
-  while (Ethernet.begin(mac) != 1){         // get an IP address
+  while (Ethernet.begin(mac) != 1) {        // Get an IP address
     delay(500);
     #ifdef DEBUG
       Serial.print(".");
@@ -94,6 +90,8 @@ void setup()
     Serial.println(Ethernet.localIP());
   #endif
 
+  mqtt_connect();                          // Connecting to MQTT server
+
   // Attach interupt for capturing light pulses on powercentral
   attachInterrupt(INT_PIN, onPulse, FALLING);
 
@@ -101,37 +99,36 @@ void setup()
   wdt_reset();
 }
 
-void loop(){
+void loop() {
    
   wdt_reset();                            // reset the watchdog timer
   Ethernet.maintain();                    // check our DHCP lease is still ok
 
   if (!mqttClient.connected()) {          // check connection to mqtt server
-    reconnect();
+    mqtt_connect();
   }
   
   mqttClient.loop();
   
-  unsigned long elapsedTime = millis() - previousTime;
-   if (elapsedTime >= REPORTING_INTERVAL_MS){
-    previousTime = millis();
-
+  if (millis() - previousSendTime >= REPORTING_INTERVAL_MS) {   // check if it's time to publish data
+    previousSendTime = millis();
     send_data();
   }
 }
 
-void reconnect() {
+void mqtt_connect() {
   
-  while (!mqttClient.connected()){         // Loop until we're reconnected
+  while (!mqttClient.connected()) {         // Loop until we're reconnected
     #ifdef DEBUG
       Serial.print("Attempting MQTT connection...");
     #endif
    
-    if (mqttClient.connect(mqttClientId)){ // Attempt to connect
+    if (mqttClient.connect(mqttClientId)) { // Attempt to connect
       #ifdef DEBUG
         Serial.println("connected");
       #endif
-    } else {
+    } 
+    else {
       #ifdef DEBUG
         Serial.print("failed, rc=");
         Serial.print(mqttClient.state());
@@ -143,7 +140,7 @@ void reconnect() {
   }
 }
 
-void send_data(){
+void send_data() {
   
   // Calculate average over the last power meassurements before sending
   int _txpulse = pulseCount;         // number of pulses to send
@@ -153,7 +150,7 @@ void send_data(){
     _sum += power[i];
   }
 
-  pulseCount=0;
+  pulseCount = 0;
   power[50] = { };
   
   unsigned int _txpower = (_sum / _txpulse);
@@ -169,7 +166,7 @@ void send_data(){
   #endif 
 }
 
-void publishData(const char * name, unsigned int value){
+void publishData(const char * name, unsigned int value) {
     
   // build the MQTT topic
   char topic[32];
@@ -185,10 +182,10 @@ void publishData(const char * name, unsigned int value){
 
 
 // The interrupt routine - runs each time a falling edge of a pulse is detected
-void onPulse(){
+void onPulse() {
    
-  unsigned long _elapsedTime = micros() - pulseTime;
-  if (_elapsedTime > MIN_ELAPSED_TIME){
+  unsigned long _elapsedTimePulse = micros() - pulseTime;
+  if (_elapsedTimePulse > MIN_ELAPSED_TIME) {
 
     pulseTime = micros();
     
@@ -196,7 +193,7 @@ void onPulse(){
     
     // Size of array to avoid runtime error
     if (pulseCount < 50) {
-      power[pulseCount] = long((3600000000.0 / _elapsedTime) / PPWH);  //Calculate power
+      power[pulseCount] = long((3600000000.0 / _elapsedTimePulse) / PPWH);  //Calculate power
       
     #ifdef DEBUG
       Serial.print("Power: ");

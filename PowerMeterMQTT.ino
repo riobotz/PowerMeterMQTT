@@ -13,19 +13,19 @@
 #define MQTT_VERSION MQTT_VERSION_3_1_1
 
 // Comment this out for not printing data to the serialport
-#define DEBUG
+//#define DEBUG
 
 // unique MAC address on our LAN (0x53 => .83)
 byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0x53 };
 
 // MQTT broker connection properties
 byte mqttBroker[] = { 192, 168, 1, 170 };
-char mqttClientId[] = "emontx";
+char mqttClientId[] = "pow01";
 //char mqttUsername[] = "USERNAME";
 //char mqttPassword[] = "PASSWORD";
 
-// publish to "/emontx/<variable>".
-char mqttTopic[] = "/emontx";
+// publish to "stat/pow01/<variable>".
+char mqttTopic[] = "stat/pow01";
 //char mqttTopicLwt[] = "/clients/emontx";
 //int  mqttLwtQos = 0;
 //int  mqttLwtRetain = 1;
@@ -47,10 +47,13 @@ PubSubClient mqttClient(ethClient);
 const byte INT_PIN = 1;
 
 // Pulse counting settings 
-volatile int pulseCount = 0;                // Number of pulses, used to measure energy.
-volatile unsigned long power[50] = {};      // Array to store pulse power values
-volatile unsigned long pulseTime =0;        // Used to measure time between pulses.
-unsigned long previousSendTime = 0;         // Used to mesure time between sending data
+
+const int countSize = 50;                       // Size for arrays storing data
+volatile int pulseCount = 0;                    // Number of pulses, used to measure energy.
+volatile unsigned long power[countSize] = {};   // Array to store pulse power values
+volatile unsigned long pulseTime =0;            // Used to measure time between pulses.
+unsigned long previousSendTime = 0;             // Used to mesure time between sending data
+int maxPower = 25000;                           // Max power allowed to avoid spikes
 
 void mqtt_callback(char* topic, byte* payload, unsigned int length) 
 { 
@@ -143,27 +146,34 @@ void mqtt_connect() {
 void send_data() {
   
   // Calculate average over the last power meassurements before sending
-  int _txpulse = pulseCount;         // Number of pulses to send
-  unsigned long _sum = 0;
+  int _pulsecount = pulseCount;         // Helper for calcualting average. Not using pulseCount because of interupt update
+  unsigned long _sum = 0;               // Helper for calculating average
   
-  for(int i=1; i<=_txpulse; i++) {
-    _sum += power[i];
-  }
+  if (_pulsecount > 0) {
+    
+    for(int i=1; i<=_pulsecount; i++) {
+      _sum += power[i];
+    }
 
-  pulseCount = 0;
-  power[50] = { };
+    pulseCount = 0;
+    power[countSize] = { };
   
-  unsigned int _txpower = (_sum / _txpulse);
-   
-  publishData("power", _txpower);
-  publishData("pulse", _txpulse);
+    unsigned long _txpower = (_sum / _pulsecount);
 
-  #ifdef DEBUG
-    Serial.print("W: ");
-    Serial.print(_txpower);
-    Serial.print(" - Pulse: ");
-    Serial.println(_txpulse);
-  #endif 
+    if (_txpower > 0 && _txpower < maxPower) {
+      publishData("power", _txpower);
+      publishData("pulse", _pulsecount);
+    }
+
+    #ifdef DEBUG
+      Serial.print("Wtot: ");
+      Serial.print(_sum);
+      Serial.print("W: ");
+      Serial.print(_txpower);
+      Serial.print(" - Pulse: ");
+      Serial.println(_pulsecount);
+    #endif 
+  }  
 }
 
 void publishData(const char * name, unsigned int value) {
@@ -192,7 +202,7 @@ void onPulse() {
     pulseCount++;                   // Increase pulseCounter
     
     // Size of array to avoid runtime error
-    if (pulseCount < 50) {
+    if (pulseCount < countSize) {
       power[pulseCount] = long((3600000000.0 / _elapsedTimePulse) / PPWH);  //Calculate power
       
     #ifdef DEBUG
@@ -203,8 +213,9 @@ void onPulse() {
     #endif
     }
     else {
-      Serial.println("Pulsecount over 50. Not logging....");
+      Serial.print("Pulsecount over ");
+      Serial.print(countSize);
+      Serial.println(". Not logging....");
     }
   }
 }
-
